@@ -2,6 +2,8 @@ package com.alexbaek.app.mmssendtest;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Iterator;
@@ -108,9 +110,14 @@ public class MainActivity extends Activity {
      */
     private void sendMMS() {
         // LG U+ MMS Type APN정보 셋팅 (LG는 2015년 설정은 비공개)
-        MMSCenterUrl = "http://omammsc.uplus.co.kr:9084";
-        MMSProxy = "";
-        MMSPort = 9084;
+//        MMSCenterUrl = "http://omammsc.uplus.co.kr:9084";
+//        MMSProxy = "";
+//        MMSPort = 9084;
+
+        // SK LTE MMS Type APN정보 셋팅
+        MMSCenterUrl = "http://omms.nate.com:9082/oma_mms";
+        MMSProxy = "lteoma.nate.com";
+        MMSPort = 9093;
 
         mListening = true;
         mSending = false;
@@ -151,7 +158,12 @@ public class MainActivity extends Activity {
 
                 if (mSending == false) {
                     mSending = true;
-                    sendMMSUsingNokiaAPI();
+                    new Thread() {
+                        public void run() {
+                            sendMMSUsingNokiaAPI();
+                        }
+                    }.start();
+
                 }
             }
         }
@@ -177,7 +189,7 @@ public class MainActivity extends Activity {
         mm.setReadReply(false);
         mm.setSenderVisibility(IMMConstants.SENDER_VISIBILITY_SHOW);
 
-        mm.setSubject("MMS 발송 테스트");  // 발송 메시지 제목
+        mm.setSubject("MMS");  // 발송 메시지 제목
         mm.setMessageClass(IMMConstants.MESSAGE_CLASS_PERSONAL);        // 발송메시지 유형(정보성,광고,개인메시지)
         mm.setPriority(IMMConstants.PRIORITY_LOW);                      // 발송메시지 우선순위
         mm.setContentType(IMMConstants.CT_APPLICATION_MULTIPART_MIXED); // 첨부파일 포함유형
@@ -254,9 +266,7 @@ public class MainActivity extends Activity {
         try {
             Log.v(TAG, "endMmsConnectivity");
             if (mConnMgr != null) {
-                mConnMgr.stopUsingNetworkFeature(
-                        ConnectivityManager.TYPE_MOBILE,
-                        PhoneEx.FEATURE_ENABLE_MMS);
+                mConnMgr.stopUsingNetworkFeature(ConnectivityManager.TYPE_MOBILE, PhoneEx.FEATURE_ENABLE_MMS);
             }
         } finally {
             releaseWakeLock();
@@ -288,12 +298,12 @@ public class MainActivity extends Activity {
             // 응답상태 체크
             Log.d(TAG, "Message sent to " + sender.getMMSCURL());
             Log.d(TAG, "Response code: " + mmResponse.getResponseCode() + " " + mmResponse.getResponseMessage());
-            Iterator keys = (Iterator) mmResponse.getHeadersList();
-            while (keys.hasNext()) {
-                String key = (String) keys.next();
-                String value = (String) mmResponse.getHeaderValue(key);
-                Log.d(TAG, (key + ": " + value));
-            }
+//            Iterator keys = (Iterator) mmResponse.getHeadersList();
+//            while (keys.hasNext()) {
+//                String key = (String) keys.next();
+//                String value = (String) mmResponse.getHeaderValue(key);
+//                Log.d(TAG, (key + ": " + value));
+//            }
 
             // 응답코드 체크 200 OK
             if (mmResponse.getResponseCode() == 200) {
@@ -305,6 +315,11 @@ public class MainActivity extends Activity {
                 Log.d("TAG", "kill");
             }
         } catch (Exception e) {
+            StringWriter sw = new StringWriter();
+            e.printStackTrace(new PrintWriter(sw));
+            String exceptionAsStrting = sw.toString();
+
+            Log.e("StackTraceExampleActivity", exceptionAsStrting);
         }
     }
 }
