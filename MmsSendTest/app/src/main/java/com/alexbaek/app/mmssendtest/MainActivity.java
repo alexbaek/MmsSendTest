@@ -21,11 +21,13 @@ import android.net.NetworkInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.PowerManager;
+import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.Toast;
 
+import com.alexbaek.app.mmssendtest.common.AppDefine;
 import com.alexbaek.app.mmssendtest.util.PhoneEx;
 import com.alexbaek.app.mmssendtest.util.nokia.IMMConstants;
 import com.alexbaek.app.mmssendtest.util.nokia.MMContent;
@@ -64,16 +66,30 @@ public class MainActivity extends Activity {
         mIsSending = false;
 
         // TODO. 통신사를 확인하여 APN정보 세팅.
+        TelephonyManager telephonyManager =((TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE));
+        String operatorName = telephonyManager.getNetworkOperatorName();
 
-        // LG U+ MMS Type APN정보 셋팅 (LG는 2015년 설정은 비공개)
-//        MMSCenterUrl = "http://omammsc.uplus.co.kr:9084";
-//        MMSProxy = "";
-//        MMSPort = 9084;
+        Log.d(TAG, "getNetworkOperatorName :: " + operatorName);
 
-        // SK LTE MMS Type APN정보 셋팅
-        MMSCenterUrl = "http://omms.nate.com:9082/oma_mms";
-        MMSProxy = "lteoma.nate.com";
-        MMSPort = 9093;
+        if (operatorName == null) {
+            // TODO. 통신 사업자가 없을때.
+        } else if (operatorName.equals(AppDefine.NETWORK_OPERATOR_NAME_SKT)) {
+            // SKT.
+            MMSCenterUrl = "http://omms.nate.com:9082/oma_mms";
+            MMSProxy = "lteoma.nate.com";
+            MMSPort = 9093;
+        } else if (operatorName.equals(AppDefine.NETWORK_OPERATOR_NAME_KT)
+                || operatorName.equals(AppDefine.NETWORK_OPERATOR_NAME_KT_SUB)) {
+            // KT
+            MMSCenterUrl = "http://mmsc.ktfwing.com:9082";
+            MMSProxy = "";
+            MMSPort = 9093;
+        } else if (operatorName.matches(AppDefine.NETWORK_OPERATOR_NAME_LGT)) {
+            // LGT
+            MMSCenterUrl = "http://omammsc.uplus.co.kr:9084";
+            MMSProxy = "";
+            MMSPort = 9084;
+        }
 
         // 버튼 세팅.
         Button btnSendMMS = (Button) findViewById(R.id.btn_send_mms);
@@ -93,6 +109,7 @@ public class MainActivity extends Activity {
                         Manifest.permission.RECEIVE_SMS,
                         Manifest.permission.RECEIVE_MMS,
                         Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                        Manifest.permission.READ_PHONE_STATE,
                         Manifest.permission.READ_PHONE_STATE)
                 .check();
     }
@@ -109,6 +126,9 @@ public class MainActivity extends Activity {
         @Override
         public void onPermissionDenied(ArrayList<String> deniedPermissions) {
             // 퍼미션 허용 안함.
+            for (String permission : deniedPermissions) {
+                Log.d(TAG, "deniedPermission :: " + permission);
+            }
         }
     };
 
@@ -145,7 +165,7 @@ public class MainActivity extends Activity {
 
             if (!mNetworkInfo.isConnected()) {
                 // TODO. 네트워크 연결되지 않았을때 팝업 처리.
-                Log.v(TAG, "   TYPE_MOBILE_MMS not connected, bail");
+                Log.v(TAG, "TYPE_MOBILE_MMS not connected, bail");
 
                 return;
             } else {
