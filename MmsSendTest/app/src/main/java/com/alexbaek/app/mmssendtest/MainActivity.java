@@ -1,9 +1,11 @@
 package com.alexbaek.app.mmssendtest;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Iterator;
@@ -12,15 +14,25 @@ import android.Manifest;
 import android.app.Activity;
 import android.content.BroadcastReceiver;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.net.Uri;
 import android.net.wifi.WifiManager;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Message;
 import android.os.PowerManager;
+import android.provider.Settings;
+import android.support.annotation.NonNull;
+import android.support.v4.app.ActivityCompat;
+import android.support.v7.app.AlertDialog;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 import android.view.View;
@@ -42,12 +54,11 @@ public class MainActivity extends Activity {
 
     private static final String TAG = "SendMMSActivity";
 
-    private ConnectivityManager mConnMgr;
-    private PowerManager.WakeLock mWakeLock;
-    private ConnectivityBroadcastReceiver mReceiver;
+    public static final int REQUEST_PERMISTION_RESULT = 20000;
 
-    private NetworkInfo mNetworkInfo;
-    private NetworkInfo mOtherNetworkInfo;
+    public static final int MMS_SEND_RESULT_SUCCESS = 50001;
+    public static final int MMS_SEND_RESULT_FAIL = 50002;
+    public static final int MMS_SEND_RESULT_ERROR = 50003;
 
     // 문자 발송 정보.
     private String MMSCenterUrl;
@@ -56,6 +67,27 @@ public class MainActivity extends Activity {
 
     //
     private boolean mIsSending;         // MMS 발송중인지에 대한 여부.
+    private Context mContext;
+
+    public Handler handler = new Handler(new Handler.Callback() {
+        @Override
+        public boolean handleMessage(Message msg) {
+            switch (msg.what) {
+                case MMS_SEND_RESULT_SUCCESS:
+                    Toast.makeText(mContext, "발송 성공", Toast.LENGTH_SHORT).show();
+                    break;
+
+                case MMS_SEND_RESULT_FAIL:
+                    Toast.makeText(mContext, "발송 실패", Toast.LENGTH_SHORT).show();
+                    break;
+
+                case MMS_SEND_RESULT_ERROR:
+                    Toast.makeText(mContext, "발송 도중 에러가 발생하였습니다.", Toast.LENGTH_SHORT).show();
+                    break;
+            }
+            return false;
+        }
+    });
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -63,6 +95,7 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
 
         // 초기화.
+        mContext = this;
         mIsSending = false;
 
         // TODO. 통신사를 확인하여 APN정보 세팅.
@@ -96,95 +129,113 @@ public class MainActivity extends Activity {
         btnSendMMS.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View view) {
-                sendMMS();
+                sendMMS("", "", null);
             }
         });
 
         // 퍼미션 체크.
-        new TedPermission(this)
-                .setPermissionListener(permissionlistener)
-                .setDeniedMessage("If you reject permission,you can not use this service\n\nPlease turn on permissions at [Setting] > [Permission]")
-                .setPermissions(Manifest.permission.READ_SMS,
-                        Manifest.permission.SEND_SMS,
-                        Manifest.permission.RECEIVE_SMS,
-                        Manifest.permission.RECEIVE_MMS,
-                        Manifest.permission.WRITE_EXTERNAL_STORAGE,
-                        Manifest.permission.READ_PHONE_STATE,
-                        Manifest.permission.READ_PHONE_STATE)
-                .check();
+        checkAndroidPermission();
     }
 
-    /**
-     * 퍼미션 체크 Listener.
-     */
-    PermissionListener permissionlistener = new PermissionListener() {
-        @Override
-        public void onPermissionGranted() {
-            // 퍼미션 확인.
-        }
+    public boolean checkAndroidPermission(){
 
-        @Override
-        public void onPermissionDenied(ArrayList<String> deniedPermissions) {
-            // 퍼미션 허용 안함.
-            for (String permission : deniedPermissions) {
-                Log.d(TAG, "deniedPermission :: " + permission);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            ArrayList<String> permissionList = new ArrayList<String>();
+            if (checkSelfPermission(Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
+                permissionList.add(Manifest.permission.READ_SMS);
+            }
+            if (checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+                permissionList.add(Manifest.permission.SEND_SMS);
+            }
+            if (checkSelfPermission(Manifest.permission.RECEIVE_SMS) != PackageManager.PERMISSION_GRANTED) {
+                permissionList.add(Manifest.permission.RECEIVE_SMS);
+            }
+            if (checkSelfPermission(Manifest.permission.RECEIVE_MMS) != PackageManager.PERMISSION_GRANTED) {
+                permissionList.add(Manifest.permission.RECEIVE_MMS);
+            }
+            if (checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) {
+                permissionList.add(Manifest.permission.READ_PHONE_STATE);
+            }
+
+            if (permissionList.size() > 0) {
+                ActivityCompat.requestPermissions(this, permissionList.toArray(new String[permissionList.size()]), REQUEST_PERMISTION_RESULT);
+                return true;
             }
         }
-    };
-
-    /**
-     * Button Click시 MMS 발송.
-     */
-    private void sendMMS() {
-        mIsSending = false;
-        mConnMgr = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
-        mReceiver = new ConnectivityBroadcastReceiver();
-
-        // Receiver 등록.
-        IntentFilter filter = new IntentFilter();
-        filter.addAction(ConnectivityManager.CONNECTIVITY_ACTION);
-        registerReceiver(mReceiver, filter);
+        return false;
     }
 
-    /**
-     *
-     */
-    private class ConnectivityBroadcastReceiver extends BroadcastReceiver {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            String action = intent.getAction();
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
-            if (!action.equals(ConnectivityManager.CONNECTIVITY_ACTION)) {
-                // TODO. 해당 .
-                Log.i(TAG, "ConnectivityBroadcastReceiver ===== onReceived()");
-                return;
-            }
+        if(requestCode == REQUEST_PERMISTION_RESULT) {
+            for(int i=0;i<permissions.length;i++) {
 
-            mNetworkInfo = (NetworkInfo) intent.getParcelableExtra(ConnectivityManager.EXTRA_NETWORK_INFO);
-            mOtherNetworkInfo = (NetworkInfo) intent.getParcelableExtra(ConnectivityManager.EXTRA_OTHER_NETWORK_INFO);
+                if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
+                    // 퍼미션 세팅 팝업 생성.
+                    //
 
-            if (!mNetworkInfo.isConnected()) {
-                // TODO. 네트워크 연결되지 않았을때 팝업 처리.
-                Log.v(TAG, "TYPE_MOBILE_MMS not connected, bail");
-
-                return;
-            } else {
-                Log.v(TAG, "connected..");
-
-                if (mIsSending == false) {
-                    mIsSending = true;
-                    new Thread() {
-                        public void run() {
-                            sendMMSUsingNokiaAPI();
+                    AlertDialog.Builder alertdialog = new AlertDialog.Builder(this);
+                    alertdialog.setMessage("안드로이드 권한을 주세요.");
+                    alertdialog.setPositiveButton("확인", new DialogInterface.OnClickListener(){
+                        @Override
+                        public void onClick(DialogInterface dialog, int which) {
+                            Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                            intent.setData(Uri.parse("package:" + getPackageName()));
+                            startActivity(intent);
+                            finish();
                         }
-                    }.start();
+                    });
+                    alertdialog.setNegativeButton("종료", new DialogInterface.OnClickListener() {
+                        @Override
+                        public void onClick(DialogInterface dialog, int which) {
+                            finish();
+                        }
+                    });
+                    AlertDialog alert = alertdialog.create();
+                    alert.setTitle("안드로이드 퍼미션");
+                    alert.show();
 
+                    return;
                 }
             }
         }
     }
 
-    ;
+    /**
+     * Button Click시 MMS 발송.
+     */
+    private void sendMMS(String phoneNumber, String message, String fileName) {
+        mIsSending = false;
+
+        ConnectivityManager cm = (ConnectivityManager) mContext.getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo networkInfo = cm.getActiveNetworkInfo();
+        if (!networkInfo.isConnected()) {
+            // TODO. 네트워크 연결되지 않았을때 팝업 처리.
+            Log.v(TAG, "TYPE_MOBILE_MMS not connected, bail");
+            return;
+        }
+
+        // WIFI 모드 Check
+        WifiManager wifiManager = (WifiManager) mContext.getSystemService(Context.WIFI_SERVICE);
+        boolean wifiEnabled = wifiManager.isWifiEnabled();
+        // WIFI 모드일 경우 강제 Off
+        if (wifiEnabled) {
+            wifiManager.setWifiEnabled(false);
+        }
+
+        if (mIsSending == false) {
+            mIsSending = true;
+            new Thread() {
+                public void run() {
+                    sendMMSUsingNokiaAPI();
+                }
+            }.start();
+
+        }
+
+    }
 
     /**
      * MMS 발송 메시지 설정(Header)
@@ -200,8 +251,8 @@ public class MainActivity extends Activity {
         //mm.addToAddress(DEST_NUMBER.replaceAll("-", "").replaceAll(" ", "")+"/TYPE=PLMN");
         // 발신번호, 통신유형 PLMN,IPv4,IPv6
 
-        mm.setFrom("01045150301/TYPE=PLMN");
-        mm.addToAddress("01045150301/TYPE=PLMN");
+        mm.setFrom("01094984279/TYPE=PLMN");
+        mm.addToAddress("01094984279/TYPE=PLMN");
         // 발신번호(+82 삭제, 보통 한국에서 보내는것처럼), 통신유형 PLMN,IPv4,IPv6
 
         //
@@ -229,70 +280,25 @@ public class MainActivity extends Activity {
         MMContent part1 = new MMContent();
         byte[] buf1 = bitmapdata;
         part1.setContent(buf1, 0, buf1.length);
-        part1.setContentId("<0>");
+        part1.setContentId("<1>");
         part1.setType(IMMConstants.CT_IMAGE_PNG);
-        mm.addContent(part1);
-    }
 
-
-    /**********************************************************************************************************************************
-     * MMS Type 통신 시작
-     ***********************************************************************************************************************************/
-    protected int beginMmsConnectivity() throws IOException {
-        // MMS 발송 진행중 휴대폰이 잠금상태가 되지 않도록 전원상태 On유지
-        createWakeLock();
-
-        // WIFI 모드 Check
-        WifiManager wifiManager = (WifiManager) this.getSystemService(Context.WIFI_SERVICE);
-        boolean wifiEnabled = wifiManager.isWifiEnabled();
-        // WIFI 모드일 경우 강제 Off
-        if (wifiEnabled) {
-            wifiManager.setWifiEnabled(false);
-        }
-
-        // 단말기 통신상태를  LTE ->MMS Type으로 전환
-        int result = mConnMgr.startUsingNetworkFeature(ConnectivityManager.TYPE_MOBILE, PhoneEx.FEATURE_ENABLE_MMS);
-        switch (result) {
-            case PhoneEx.APN_ALREADY_ACTIVE:
-            case PhoneEx.APN_REQUEST_STARTED:
-                acquireWakeLock();
-                return result;
-        }
-        throw new IOException("Cannot establish MMS connectivity");
-    }
-
-    private synchronized void createWakeLock() {
-        // Create a new wake lock if we haven't made one yet.
-        if (mWakeLock == null) {
-            PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            mWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MMS Connectivity");
-            mWakeLock.setReferenceCounted(false);
-        }
-    }
-
-    private void acquireWakeLock() {
-        // It's okay to double-acquire this because we are not using it
-        // in reference-counted mode.
-        mWakeLock.acquire();
-    }
-
-    private void releaseWakeLock() {
-        // Don't release the wake lock if it hasn't been created and acquired.
-        if (mWakeLock != null && mWakeLock.isHeld()) {
-            mWakeLock.release();
-        }
-    }
-
-    protected void endMmsConnectivity() {
-        // End the connectivity
+        // 발송 문자 내역 첨부
+        String content = "치성이형 바보";
+        MMContent part2 = new MMContent();
+        byte[] buf2 = new byte[]{};
         try {
-            Log.v(TAG, "endMmsConnectivity");
-            if (mConnMgr != null) {
-                mConnMgr.stopUsingNetworkFeature(ConnectivityManager.TYPE_MOBILE, PhoneEx.FEATURE_ENABLE_MMS);
-            }
-        } finally {
-            releaseWakeLock();
+            buf2 = content.getBytes("euc-kr");
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
         }
+        part2.setContent(buf2, 0, buf2.length);
+        part2.setContentId("<0>");
+        part2.setType(IMMConstants.CT_TEXT_PLAIN + "; charset=\"euc-kr\";");
+
+
+        mm.addContent(part2);
+        mm.addContent(part1);
     }
 
     /**********************************************************************************************************************************
@@ -320,22 +326,23 @@ public class MainActivity extends Activity {
             // 응답상태 체크
             Log.d(TAG, "Message sent to " + sender.getMMSCURL());
             Log.d(TAG, "Response code: " + mmResponse.getResponseCode() + " " + mmResponse.getResponseMessage());
-//            Iterator keys = (Iterator) mmResponse.getHeadersList();
-//            while (keys.hasNext()) {
-//                String key = (String) keys.next();
-//                String value = (String) mmResponse.getHeaderValue(key);
-//                Log.d(TAG, (key + ": " + value));
-//            }
 
             // 응답코드 체크 200 OK
             if (mmResponse.getResponseCode() == 200) {
+                // 발송 Toast 생성.
+                handler.sendEmptyMessage(MMS_SEND_RESULT_SUCCESS);
+
                 // MMS 발송 관련 통신이 정상 완료후 프로세스
-                endMmsConnectivity();
                 Log.d("TAG", "releaseWakeLock");
             } else {
+                handler.sendEmptyMessage(MMS_SEND_RESULT_FAIL);
+
                 Log.d("TAG", "kill");
             }
         } catch (Exception e) {
+            handler.sendEmptyMessage(MMS_SEND_RESULT_ERROR);
+
+
             StringWriter sw = new StringWriter();
             e.printStackTrace(new PrintWriter(sw));
             String exceptionAsStrting = sw.toString();
